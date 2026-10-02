@@ -22,12 +22,6 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
 
-      - name: Fix ESP32-BLE-HID compatibility
-        run: |
-          LIB=".pio/libdeps/esp32-c3-devkitm-1/ESP32-BLE-HID/BleComboMouse.cpp"
-          mkdir -p "$(dirname "$LIB")"
-          sed -i '1i#include <Arduino.h>' "$LIB"
-
       - name: Build firmware
         run: pio run
 
