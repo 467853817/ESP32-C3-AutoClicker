@@ -25,8 +25,84 @@ jobs:
       - name: Build firmware
         run: pio run
 
-      - name: Upload firmware artifact
+      - name: Collect flash binaries
+        run: |
+          set -e
+          BUILD_DIR=".pio/build/esp32-c3-devkitm-1"
+          OUT_DIR="flash_bins"
+          mkdir -p "$OUT_DIR"
+
+          # 1) firmware.bin (app)
+          cp "$BUILD_DIR/firmware.bin" "$OUT_DIR/firmware.bin"
+
+          # 2) partitions.bin
+          cp "$BUILD_DIR/partitions.bin" "$OUT_DIR/partitions.bin"
+
+          # 3) bootloader.bin — prefer the one PlatformIO put in the build dir
+          if [ -f "$BUILD_DIR/bootloader.bin" ]; then
+            cp "$BUILD_DIR/bootloader.bin" "$OUT_DIR/bootloader.bin"
+          else
+            # fallback: search framework packages for ESP32-C3 bootloader
+            BL=$(find "$HOME/.platformio/packages" -type f \
+              \( -name 'bootloader.bin' -o -name 'bootloader_*.bin' \) \
+              2>/dev/null | grep -iE 'esp32c3|c3' | head -1 || true)
+            if [ -z "$BL" ]; then
+              BL=$(find "$HOME/.platformio/packages" -type f -name 'bootloader.bin' 2>/dev/null | head -1 || true)
+            fi
+            if [ -n "$BL" ]; then
+              cp "$BL" "$OUT_DIR/bootloader.bin"
+              echo "bootloader source: $BL"
+            else
+              echo "ERROR: bootloader.bin not found"
+              exit 1
+            fi
+          fi
+
+          # 4) boot_app0.bin (OTA data init image)
+          BOOT_APP0=$(find "$HOME/.platformio/packages" -type f \
+            -path '*/tools/partitions/boot_app0.bin' 2>/dev/null | head -1 || true)
+          if [ -z "$BOOT_APP0" ]; then
+            BOOT_APP0=$(find "$HOME/.platformio/packages" -type f -name 'boot_app0.bin' 2>/dev/null | head -1 || true)
+          fi
+          if [ -n "$BOOT_APP0" ]; then
+            cp "$BOOT_APP0" "$OUT_DIR/boot_app0.bin"
+            echo "boot_app0 source: $BOOT_APP0"
+          else
+            echo "ERROR: boot_app0.bin not found"
+            exit 1
+          fi
+
+          # Write flash address guide for Android tools
+          cat > "$OUT_DIR/FLASH_OFFSETS.txt" << 'EOF'
+          ESP32-C3 Flash Addresses (use these in Android flash tools)
+          ============================================================
+          bootloader.bin   ->  0x0000
+          partitions.bin   ->  0x8000
+          boot_app0.bin    ->  0xE000
+          firmware.bin     ->  0x10000
+
+          Notes:
+          - Chip: ESP32-C3
+          - Flash mode: usually DIO / QIO (tool auto or DIO is fine)
+          - Flash frequency: 80MHz or 40MHz both OK for most boards
+          - Flash size: detect / 4MB
+          EOF
+
+          echo ""
+          echo "=== Collected files ==="
+          ls -la "$OUT_DIR"
+          echo ""
+          # Fail if any required file is missing
+          for f in bootloader.bin partitions.bin boot_app0.bin firmware.bin; do
+            if [ ! -f "$OUT_DIR/$f" ]; then
+              echo "ERROR: missing $f"
+              exit 1
+            fi
+          done
+          echo "All 4 binaries ready."
+
+      - name: Upload flash binaries artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ESP32-C3-AutoClicker
-          path: .pio/build/esp32-c3-devkitm-1/firmware.bin
+          name: ESP32-C3-AutoClicker-flash-bins
+          path: flash_bins/
