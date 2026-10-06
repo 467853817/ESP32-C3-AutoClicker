@@ -1,8 +1,8 @@
 # ESP32-C3-AutoClicker
 
-ESP32-C3 SuperMini BLE iPhone 多点轮流连点器
+ESP32-C3 SuperMini BLE iPhone 单点轮流连点器
 
-## 功能
+## 功能（不一定成功）
 - 支持**多点轮流点击**（可配置多个坐标）
 - 可自定义点击频率
 - 使用绝对坐标，先快速移动到位置再点击
