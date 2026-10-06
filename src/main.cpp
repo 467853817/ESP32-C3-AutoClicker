@@ -198,6 +198,8 @@ class ServerCallbacks : public BLEServerCallbacks {
 
 // ------------------------------------------------------------
 // 发送一个完整 Touch Report
+// Report ID=5 已由 inputReport(0x05) 处理，数据本体严格 13 字节：
+// Contact1 (6) + Contact2 (6) + ContactCount (1)
 // ------------------------------------------------------------
 void sendTouchReport(
     bool touch1Down,
@@ -213,32 +215,29 @@ void sendTouchReport(
 
     uint8_t report[13];
 
-    // Report ID
-    report[0] = 0x05;
-
     // --------------------------------------------------------
     // Contact 1
     // --------------------------------------------------------
-    report[1] = touch1Down ? 0x03 : 0x00;
-    report[2] = 0x01;
+    report[0] = touch1Down ? 0x03 : 0x00;  // Tip Switch + In Range
+    report[1] = 0x01;                      // Contact ID = 1
 
-    report[3] = x1 & 0xFF;
-    report[4] = (x1 >> 8) & 0xFF;
+    report[2] = x1 & 0xFF;
+    report[3] = (x1 >> 8) & 0xFF;
 
-    report[5] = y1 & 0xFF;
-    report[6] = (y1 >> 8) & 0xFF;
+    report[4] = y1 & 0xFF;
+    report[5] = (y1 >> 8) & 0xFF;
 
     // --------------------------------------------------------
     // Contact 2
     // --------------------------------------------------------
-    report[7] = touch2Down ? 0x03 : 0x00;
-    report[8] = 0x02;
+    report[6] = touch2Down ? 0x03 : 0x00;  // Tip Switch + In Range
+    report[7] = 0x02;                      // Contact ID = 2
 
-    report[9]  = x2 & 0xFF;
-    report[10] = (x2 >> 8) & 0xFF;
+    report[8]  = x2 & 0xFF;
+    report[9]  = (x2 >> 8) & 0xFF;
 
-    report[11] = y2 & 0xFF;
-    report[12] = (y2 >> 8) & 0xFF;
+    report[10] = y2 & 0xFF;
+    report[11] = (y2 >> 8) & 0xFF;
 
     // --------------------------------------------------------
     // Contact Count
@@ -253,18 +252,9 @@ void sendTouchReport(
         contactCount++;
     }
 
-    // 注意：
-    // 当前 report 已经 13 bytes，
-    // 最后一字节需要 Contact Count。
-    //
-    // 为避免修改前面的结构，
-    // 我们这里重新组织成 14 bytes。
-    uint8_t finalReport[14];
+    report[12] = contactCount;
 
-    memcpy(finalReport, report, 13);
-    finalReport[13] = contactCount;
-
-    inputReport->setValue(finalReport, sizeof(finalReport));
+    inputReport->setValue(report, sizeof(report));
     inputReport->notify();
 }
 
