@@ -11,31 +11,27 @@
 //     300 = 大约每秒 3 次
 //     200 = 每秒 5 次
 //     100 = 每秒 10 次
-const unsigned long CLICK_INTERVAL_MS = 300;
+const unsigned long CLICK_INTERVAL_MS = 500;   // 相对模式建议先用 500 以上，稳定后再调小
 
-// 2. 手机屏幕分辨率（iPhone 12 默认已填好）
+// 2. 手机屏幕分辨率（必须正确！）
 //    iPhone 12 / 12 Pro : 1170 x 2532
 //    iPhone 12 mini     : 1080 x 2340
 //    iPhone 12 Pro Max  : 1284 x 2778
-//    其他机型请改成实际分辨率（设置 → 通用 → 关于本机 可查，或截图看像素）
-const int SCREEN_WIDTH  = 1170;   // 屏幕宽度
-const int SCREEN_HEIGHT = 2532;   // 屏幕高度
+//    iPhone 13/14       : 1170 x 2532
+//    iPhone 15          : 1179 x 2556
+//    其他机型请改成实际分辨率
+const int SCREEN_WIDTH  = 1170;
+const int SCREEN_HEIGHT = 2532;
 
-// 3. 要点击的位置列表（可任意增加或减少）
-//    左上角是 (0, 0)，右下角是 (SCREEN_WIDTH, SCREEN_HEIGHT)
-//    格式：{x坐标, y坐标},
+// 3. 要点击的位置列表（左上角是 0,0）
 struct Point {
   int x;
   int y;
 };
 
 Point clickPoints[] = {
-  {194,  1280},    // 第1个点击位置 ← 改这里的数字
-  {995, 1298},    // 第2个点击位置
-  {800, 1700},    // 第3个点击位置
-  // 想加更多点就继续往下写，例如：
-  // {300, 2000},
-  // {900, 1100},
+  {194,  1280},   // 分段（左边灰色）
+  {995,  1298},   // 启动（右边绿色）
 };
 
 // ============================================================
@@ -49,21 +45,68 @@ const int POINT_COUNT = sizeof(clickPoints) / sizeof(clickPoints[0]);
 int currentIndex = 0;
 unsigned long lastClick = 0;
 
+// 相对移动单步最大值（HID 相对鼠标限制）
+const int MAX_STEP = 127;
+
+// 把光标强制归位到左上角 (0,0)
+void homeToTopLeft() {
+  // 多移动几次，确保不管当前位置在哪都能顶到左上角
+  for (int i = 0; i < 20; i++) {
+    mouse.move(-MAX_STEP, -MAX_STEP);
+    delay(5);
+  }
+  // 再多往左和往上各推一次，更保险
+  for (int i = 0; i < 10; i++) {
+    mouse.move(-MAX_STEP, 0);
+    delay(3);
+  }
+  for (int i = 0; i < 10; i++) {
+    mouse.move(0, -MAX_STEP);
+    delay(3);
+  }
+  delay(30);  // 等系统稳定
+}
+
+// 从当前位置相对移动到目标（已假设当前位置是 0,0）
+void moveRelativeTo(int targetX, int targetY) {
+  int remainX = targetX;
+  int remainY = targetY;
+
+  while (remainX != 0 || remainY != 0) {
+    int stepX = constrain(remainX, -MAX_STEP, MAX_STEP);
+    int stepY = constrain(remainY, -MAX_STEP, MAX_STEP);
+
+    mouse.move(stepX, stepY);
+    delay(4);
+
+    remainX -= stepX;
+    remainY -= stepY;
+  }
+  delay(20);
+}
+
+// 完整点击：归位 → 移动到目标 → 点击
+void doRelativeClick(int x, int y) {
+  // 1. 强制归位到左上角
+  homeToTopLeft();
+
+  // 2. 相对移动到目标坐标
+  moveRelativeTo(x, y);
+
+  // 3. 点击
+  mouse.click();
+  delay(30);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
 
   Serial.println();
-  Serial.println("ESP32-C3 多点轮流连点器 启动中...");
+  Serial.println("ESP32-C3 多点轮流连点器 (相对鼠标模式) 启动中...");
 
   keyboard.begin();
   mouse.begin();
-
-  // 设置屏幕分辨率（绝对坐标模式必须设置）
-  mouse.setScreenSize(SCREEN_WIDTH, SCREEN_HEIGHT);
-
-  // 可选：微调坐标偏移（如果整体偏左/偏上，可以改这里）
-  // mouse.setCalibrationOffset(0, 0);
 
   Serial.println("BLE HID 已启动");
   Serial.println("设备名称: ESP32-C3-AutoClicker");
@@ -73,25 +116,8 @@ void setup() {
   Serial.print("点击间隔: ");
   Serial.print(CLICK_INTERVAL_MS);
   Serial.println(" ms");
+  Serial.println("当前模式: 相对鼠标 + 归位 (兼容性最好)");
   Serial.println("等待手机蓝牙连接...");
-}
-
-void doAbsoluteClick(int x, int y) {
-  // 完整绝对坐标点击流程（推荐）
-  // 1. 先移动到位置（不按下）
-  mouse.sendAbsolutePixel(x, y, false, true);  // tip=false, inRange=true
-  delay(20);
-
-  // 2. 按下（tipSwitch = true）
-  mouse.sendAbsolutePixel(x, y, true, true);
-  delay(40);   // 按住时间，可调 30~80
-
-  // 3. 松开
-  mouse.sendAbsolutePixel(x, y, false, true);
-  delay(15);
-
-  // 4. 可选：离开范围（更干净）
-  mouse.sendAbsolutePixel(x, y, false, false);
 }
 
 void loop() {
@@ -99,14 +125,11 @@ void loop() {
     unsigned long now = millis();
 
     if (now - lastClick >= CLICK_INTERVAL_MS) {
-      // 取出当前要点击的坐标
       int x = clickPoints[currentIndex].x;
       int y = clickPoints[currentIndex].y;
 
-      // 执行绝对坐标点击
-      doAbsoluteClick(x, y);
+      doRelativeClick(x, y);
 
-      // 串口打印当前点击信息，方便调试
       Serial.print("点击 [");
       Serial.print(currentIndex + 1);
       Serial.print("/");
@@ -117,7 +140,6 @@ void loop() {
       Serial.print(y);
       Serial.println(")");
 
-      // 切换到下一个点，循环
       currentIndex++;
       if (currentIndex >= POINT_COUNT) {
         currentIndex = 0;
@@ -126,7 +148,6 @@ void loop() {
       lastClick = now;
     }
   } else {
-    // 断开连接时重置计时
     lastClick = millis();
   }
 
