@@ -17,6 +17,7 @@ const unsigned long CLICK_INTERVAL_MS = 300;
 //    iPhone 12 / 12 Pro : 1170 x 2532
 //    iPhone 12 mini     : 1080 x 2340
 //    iPhone 12 Pro Max  : 1284 x 2778
+//    其他机型请改成实际分辨率（设置 → 通用 → 关于本机 可查，或截图看像素）
 const int SCREEN_WIDTH  = 1170;   // 屏幕宽度
 const int SCREEN_HEIGHT = 2532;   // 屏幕高度
 
@@ -61,12 +62,36 @@ void setup() {
   // 设置屏幕分辨率（绝对坐标模式必须设置）
   mouse.setScreenSize(SCREEN_WIDTH, SCREEN_HEIGHT);
 
+  // 可选：微调坐标偏移（如果整体偏左/偏上，可以改这里）
+  // mouse.setCalibrationOffset(0, 0);
+
   Serial.println("BLE HID 已启动");
   Serial.println("设备名称: ESP32-C3-AutoClicker");
   Serial.print("共配置了 ");
   Serial.print(POINT_COUNT);
   Serial.println(" 个点击位置");
+  Serial.print("点击间隔: ");
+  Serial.print(CLICK_INTERVAL_MS);
+  Serial.println(" ms");
   Serial.println("等待手机蓝牙连接...");
+}
+
+void doAbsoluteClick(int x, int y) {
+  // 完整绝对坐标点击流程（推荐）
+  // 1. 先移动到位置（不按下）
+  mouse.sendAbsolutePixel(x, y, false, true);  // tip=false, inRange=true
+  delay(20);
+
+  // 2. 按下（tipSwitch = true）
+  mouse.sendAbsolutePixel(x, y, true, true);
+  delay(40);   // 按住时间，可调 30~80
+
+  // 3. 松开
+  mouse.sendAbsolutePixel(x, y, false, true);
+  delay(15);
+
+  // 4. 可选：离开范围（更干净）
+  mouse.sendAbsolutePixel(x, y, false, false);
 }
 
 void loop() {
@@ -78,12 +103,8 @@ void loop() {
       int x = clickPoints[currentIndex].x;
       int y = clickPoints[currentIndex].y;
 
-      // 先快速移动到目标位置（绝对坐标）
-      mouse.sendAbsolutePixel(x, y);
-      delay(25);          // 稍等定位稳定
-
-      // 再执行点击
-      mouse.click();
+      // 执行绝对坐标点击
+      doAbsoluteClick(x, y);
 
       // 串口打印当前点击信息，方便调试
       Serial.print("点击 [");
